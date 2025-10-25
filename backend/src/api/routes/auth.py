@@ -6,10 +6,22 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel, EmailStr
 
 from src.config.database import get_db
 from src.config.settings import get_settings
 from src.models.user import User, UserRole
+
+# Request models
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    role: str = "legal_officer"
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 router = APIRouter()
 settings = get_settings()
@@ -56,10 +68,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
 
 @router.post("/signup")
 async def signup(
-    email: str,
-    password: str,
-    name: str,
-    role: str = "legal_officer",
+    request: SignupRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -67,19 +76,19 @@ async def signup(
     TODO: Backend team needs to implement proper validation and error handling.
     """
     # Check if user exists
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(User.email == request.email))
     existing_user = result.scalar_one_or_none()
     
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     # Create new user
-    hashed_password = get_password_hash(password)
+    hashed_password = get_password_hash(request.password)
     new_user = User(
-        email=email,
-        name=name,
+        email=request.email,
+        name=request.name,
         hashed_password=hashed_password,
-        role=UserRole[role]
+        role=UserRole[request.role]
     )
     
     db.add(new_user)
@@ -106,18 +115,17 @@ async def signup(
 
 @router.post("/login")
 async def login(
-    email: str,
-    password: str,
+    request: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Login user and return JWT token.
     TODO: Backend team needs to implement rate limiting and security measures.
     """
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(User.email == request.email))
     user = result.scalar_one_or_none()
     
-    if not user or not verify_password(password, user.hashed_password):
+    if not user or not verify_password(request.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
