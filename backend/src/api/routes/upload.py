@@ -40,6 +40,7 @@ async def upload_contract(
     if file.content_type not in [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream"
     ]:
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF and DOCX are allowed.")
 
