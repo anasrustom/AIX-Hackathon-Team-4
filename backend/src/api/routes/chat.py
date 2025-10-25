@@ -4,37 +4,25 @@ from sqlalchemy import select, desc
 from typing import Optional, List
 
 from src.config.database import get_db
-from src.models.user import User
 from src.models.chat_history import ChatHistory
-from src.api.routes.auth import get_current_user
 from src.services.chat import chat_service
 
 router = APIRouter()
 
 async def _load_previous_messages(
     db: AsyncSession,
-    user_id: str,
     contract_id: Optional[str],
     limit: int = 10,
 ) -> List[dict]:
     """
-    Fetch recent chat history to provide conversational context to the model.
-    We keep it simple: last `limit` messages for this user (and contract if provided).
+    Fetch recent chat history (no user filter, auth disabled for testing).
     """
-    stmt = (
-        select(ChatHistory)
-        .where(ChatHistory.user_id == user_id)
-        .order_by(desc(ChatHistory.order_by(desc(ChatHistory.timestamp))
-))
-        .limit(limit)
-    )
+    stmt = select(ChatHistory).order_by(desc(ChatHistory.timestamp)).limit(limit)
     if contract_id:
         stmt = (
             select(ChatHistory)
-            .where(ChatHistory.user_id == user_id)
             .where(ChatHistory.contract_id == contract_id)
-            .order_by(desc(ChatHistory.order_by(desc(ChatHistory.timestamp))
-))
+            .order_by(desc(ChatHistory.timestamp))
             .limit(limit)
         )
 
@@ -44,9 +32,9 @@ async def _load_previous_messages(
             "message": r.message,
             "response": r.response,
             "contract_id": r.contract_id,
-            "created_at": getattr(r, "created_at", None),
+            "timestamp": getattr(r, "timestamp", None),
         }
-        for r in reversed(rows)  
+        for r in reversed(rows)  # oldest -> newest
     ]
     return history
 
@@ -56,25 +44,15 @@ async def ask_question(
     message: str,
     contract_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """
-    Ask a question about a specific contract (if contract_id is provided)
-    or about the overall portfolio (no contract_id).
-
-    Returns:
-      {
-        "response": str,
-        "sources": List[str],
-        "confidence": float
-      }
+    Contract-scoped or global Q&A (auth disabled for testing).
     """
     if not message or not message.strip():
         raise HTTPException(status_code=400, detail="Message must not be empty.")
 
     previous_messages = await _load_previous_messages(
         db=db,
-        user_id=current_user.id,
         contract_id=contract_id,
         limit=10,
     )
@@ -86,9 +64,10 @@ async def ask_question(
             previous_messages=previous_messages,
         )
     else:
+        # When auth is disabled, pass a dummy user id
         result = await chat_service.answer_general_question(
             question=message,
-            user_id=str(current_user.id),
+            user_id="public-test",
             previous_messages=previous_messages,
         )
 
@@ -98,7 +77,7 @@ async def ask_question(
 
     record = ChatHistory(
         contract_id=contract_id,
-        user_id=current_user.id,
+        user_id="public-test",  # was current_user.id
         message=message,
         response=ai_response,
     )
@@ -117,27 +96,18 @@ async def get_chat_history(
     contract_id: Optional[str] = None,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """
-    Return recent chat history. If contract_id is provided, filter by that contract.
+    Return recent chat history (auth disabled for testing).
     """
     limit = max(1, min(limit, 200))
 
-    stmt = (
-        select(ChatHistory)
-        .where(ChatHistory.user_id == current_user.id)
-        .order_by(desc(ChatHistory.order_by(desc(ChatHistory.timestamp))
-))
-        .limit(limit)
-    )
+    stmt = select(ChatHistory).order_by(desc(ChatHistory.timestamp)).limit(limit)
     if contract_id:
         stmt = (
             select(ChatHistory)
-            .where(ChatHistory.user_id == current_user.id)
             .where(ChatHistory.contract_id == contract_id)
-            .order_by(desc(ChatHistory.order_by(desc(ChatHistory.timestamp))
-))
+            .order_by(desc(ChatHistory.timestamp))
             .limit(limit)
         )
 
@@ -148,7 +118,7 @@ async def get_chat_history(
             "contract_id": r.contract_id,
             "message": r.message,
             "response": r.response,
-            "created_at": getattr(r, "created_at", None),
+            "timestamp": getattr(r, "timestamp", None),
         }
         for r in rows
     ]
