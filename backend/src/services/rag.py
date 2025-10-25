@@ -1,212 +1,220 @@
 """
 RAG (Retrieval-Augmented Generation) Service
-Implements vector search and context retrieval for contracts.
-
-Backend team should implement:
-- Document chunking and embedding
-- Vector storage (can use simple in-memory or ChromaDB/FAISS)
-- Semantic search across contract text
-- Context retrieval for Q&A
-- Relevance scoring
-
-This service is used by both chat.py and summary.py for context-aware responses.
+- Chunking, embeddings (multilingual), FAISS vector index
+- Per-contract semantic search and context assembly
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
+import os
+import math
+import numpy as np
+import faiss
+
 import google.generativeai as genai
+from sentence_transformers import SentenceTransformer
+
 from src.config.settings import get_settings
 
 settings = get_settings()
 
+DEFAULT_EMBEDDINGS_MODEL = getattr(
+    settings, "embeddings_model", "intfloat/multilingual-e5-large"
+)
+
+def _normalize_embeddings(X: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(X, axis=1, keepdims=True) + 1e-12
+    return X / norms
+
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-12
+    return float(np.dot(a, b) / denom)
+
+def _word_chunks(text: str, approx_tokens: int = 220, overlap: int = 30) -> List[Dict[str, Any]]:
+    """
+    Rough token-aware chunking by words with overlap.
+    approx_tokens ~ #words (not exact tokens, but works well in practice).
+    """
+    words = (text or "").split()
+    if not words:
+        return []
+
+    chunks: List[Dict[str, Any]] = []
+    step = max(1, approx_tokens - overlap)
+    i = 0
+    cid = 0
+    while i < len(words):
+        seg = " ".join(words[i : i + approx_tokens]).strip()
+        if seg:
+            chunks.append(
+                {
+                    "chunk_id": f"c_{cid:05d}",
+                    "page": 0,           
+                    "section": None,     # section detection omitted (need be added later)
+                    "text": seg,
+                }
+            )
+            cid += 1
+        i += step
+    return chunks
+
 
 class RAGService:
     """
-    Service for Retrieval-Augmented Generation.
-    Handles document chunking, embedding, and semantic search.
+    Retrieval-Augmented Generation:
+    - Build per-contract FAISS index
+    - Semantic search within a contract
+    - Global search across all indexed contracts
     """
-    
+
     def __init__(self):
-        """
-        Initialize RAG service with embedding model.
-        TODO: Backend team - configure Gemini embedding model
-        """
-        if settings.gemini_api_key:
+        if getattr(settings, "gemini_api_key", None):
             genai.configure(api_key=settings.gemini_api_key)
-            # TODO: Initialize embedding model
-            self.embedding_model = None
-        else:
-            self.embedding_model = None
-        
-        # In-memory vector store (simple implementation)
-        # TODO: Consider using ChromaDB, FAISS, or Pinecone for production
-        self.vector_store: Dict[str, List[Dict]] = {}
-    
-    async def index_contract(self, contract_id: str, contract_text: str) -> bool:
+
+        self.model_name = DEFAULT_EMBEDDINGS_MODEL
+        self.model: Optional[SentenceTransformer] = None
+        try:
+            self.model = SentenceTransformer(self.model_name)
+        except Exception:
+            self.model = None
+
+        self._store: Dict[str, Dict[str, Any]] = {}
+
+    async def index_contract(self, contract_id: str, text: str, language: str = "en") -> bool:
         """
-        Index a contract for semantic search.
-        
-        Process:
-        1. Chunk the contract text
-        2. Generate embeddings for each chunk
-        3. Store in vector database with metadata
-        
-        Args:
-            contract_id: Unique contract identifier
-            contract_text: Full text of the contract
-            
-        Returns:
-            bool: Success status
-            
-        TODO: Backend team - Implement document indexing
+        Build/replace the FAISS index for a contract.
+        Steps:
+          1) chunk
+          2) embed
+          3) index (cosine similarity via inner product on normalized embeddings)
         """
-        if not self.embedding_model:
+        if not text or not text.strip():
             return False
-        
-        # TODO:
-        # 1. Chunk the text (see chunk_text method)
-        # 2. Generate embeddings for each chunk
-        # 3. Store embeddings with metadata (contract_id, chunk_index, text)
-        
-        return False
-    
-    async def search_contract(
-        self,
-        contract_id: str,
-        query: str,
-        top_k: int = 5
-    ) -> List[Dict]:
+
+        if self.model is None:
+            try:
+                self.model = SentenceTransformer(self.model_name)
+            except Exception:
+                return False
+
+        chunks = _word_chunks(text, approx_tokens=220, overlap=30)
+        if not chunks:
+            chunks = [{"chunk_id": "c_00000", "page": 0, "section": None, "text": text[:2000]}]
+
+        texts = [c["text"] for c in chunks]
+        vecs = self.model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
+        dim = vecs.shape[1]
+
+        index = faiss.IndexFlatIP(dim)  
+        index.add(vecs)
+
+        self._store[str(contract_id)] = {
+            "index": index,
+            "embeddings": vecs,
+            "chunks": chunks,
+            "language": language,
+        }
+        return True
+
+    async def search_contract(self, contract_id: str, query: str, top_k: int = 5) -> List[Dict]:
         """
-        Search within a specific contract for relevant sections.
-        
-        Args:
-            contract_id: Contract to search
-            query: Search query (question or keywords)
-            top_k: Number of top results to return
-            
-        Returns:
-            List of relevant text chunks with scores
-            
-        TODO: Backend team - Implement contract search
+        Return top_k relevant chunks for a single contract.
+        Each result: {chunk_id, text, score, page, section}
         """
-        if not self.embedding_model:
+        entry = self._store.get(str(contract_id))
+        if entry is None or self.model is None:
             return []
-        
-        # TODO:
-        # 1. Generate embedding for query
-        # 2. Find most similar chunks in vector store for this contract
-        # 3. Return top_k results with relevance scores
-        
-        return []
-    
+
+        q = self.model.encode([query], normalize_embeddings=True, convert_to_numpy=True)
+        D, I = entry["index"].search(q, min(top_k, len(entry["chunks"])))
+        idxs = I[0].tolist()
+        sims = D[0].tolist()
+
+        results: List[Dict] = []
+        for pos, score in zip(idxs, sims):
+            if pos < 0:
+                continue
+            c = entry["chunks"][pos]
+            results.append(
+                {
+                    "chunk_id": c["chunk_id"],
+                    "text": c["text"],
+                    "score": float(score),
+                    "page": c.get("page", 0),
+                    "section": c.get("section"),
+                }
+            )
+        return results
+
     async def search_all_contracts(
         self,
         query: str,
-        user_id: Optional[str] = None,
+        user_id: Optional[str] = None,  
         top_k: int = 10
     ) -> List[Dict]:
         """
-        Search across all contracts (or user's contracts).
-        
-        Args:
-            query: Search query
-            user_id: Optional - filter by user's contracts
-            top_k: Number of results to return
-            
-        Returns:
-            List of relevant chunks from multiple contracts
-            
-        TODO: Backend team - Implement multi-contract search
+        Global search across all contracts. Returns top_k across all indices.
+        Each result: {contract_id, chunk_id, text, score, page, section}
         """
-        if not self.embedding_model:
+        if self.model is None or not self._store:
             return []
-        
-        # TODO:
-        # 1. Generate query embedding
-        # 2. Search across all indexed contracts
-        # 3. Filter by user_id if provided
-        # 4. Return aggregated results
-        
-        return []
-    
-    def chunk_text(
-        self,
-        text: str,
-        chunk_size: int = 500,
-        overlap: int = 50
-    ) -> List[Dict]:
+
+        q = self.model.encode([query], normalize_embeddings=True, convert_to_numpy=True)[0] 
+        results: List[Tuple[str, int, float]] = []  
+
+        for cid, entry in self._store.items():
+            index: faiss.IndexFlatIP = entry["index"]
+            chunks = entry["chunks"]
+            k = min(top_k, len(chunks))
+            D, I = index.search(q.reshape(1, -1), k)
+            for pos, score in zip(I[0].tolist(), D[0].tolist()):
+                if pos < 0:
+                    continue
+                results.append((cid, pos, float(score)))
+
+        results.sort(key=lambda t: t[2], reverse=True)
+        results = results[:top_k]
+
+        out: List[Dict] = []
+        for cid, pos, score in results:
+            c = self._store[cid]["chunks"][pos]
+            out.append(
+                {
+                    "contract_id": cid,
+                    "chunk_id": c["chunk_id"],
+                    "text": c["text"],
+                    "score": score,
+                    "page": c.get("page", 0),
+                    "section": c.get("section"),
+                }
+            )
+        return out
+
+    def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[Dict]:
         """
-        Split contract text into overlapping chunks.
-        
-        Args:
-            text: Contract text to chunk
-            chunk_size: Target size of each chunk (in characters)
-            overlap: Number of characters to overlap between chunks
-            
-        Returns:
-            List of chunks with metadata
-            
-        TODO: Backend team - Implement smart chunking
+        Backwards-compatible API (character-based), wraps the word-based chunker.
         """
-        # TODO: Implement intelligent chunking that:
-        # - Respects sentence boundaries
-        # - Keeps sections together when possible
-        # - Maintains context with overlap
-        # - Preserves important structure (headings, clauses)
-        
-        # Simple implementation for reference:
-        chunks = []
-        start = 0
-        
-        while start < len(text):
-            end = start + chunk_size
-            chunk_text = text[start:end]
-            
-            chunks.append({
-                "text": chunk_text,
-                "start_pos": start,
-                "end_pos": end,
-                "chunk_index": len(chunks)
-            })
-            
-            start += (chunk_size - overlap)
-        
-        return chunks
-    
+        return _word_chunks(text, approx_tokens=220, overlap=30)
+
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """
-        Generate embedding vector for text.
-        
-        Args:
-            text: Text to embed
-            
-        Returns:
-            Embedding vector (list of floats)
-            
-        TODO: Backend team - Implement embedding generation
+        Generate a single embedding vector for arbitrary text.
         """
-        if not self.embedding_model:
-            return None
-        
-        # TODO: Use Gemini embedding API
-        # Example: embedding_result = genai.embed_content(...)
-        
-        return None
-    
-    def calculate_similarity(
-        self,
-        embedding1: List[float],
-        embedding2: List[float]
-    ) -> float:
+        if self.model is None:
+            try:
+                self.model = SentenceTransformer(self.model_name)
+            except Exception:
+                return None
+        v = self.model.encode([text], normalize_embeddings=True, convert_to_numpy=True)[0]
+        return v.tolist()
+
+    def calculate_similarity(self, embedding1: List[float], embedding2: List[float]) -> float:
         """
-        Calculate cosine similarity between two embeddings.
-        
-        TODO: Backend team - Implement similarity calculation
+        Cosine similarity between two vectors.
         """
-        # TODO: Implement cosine similarity
-        # Can use numpy: np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-        
-        return 0.0
-    
+        a = np.asarray(embedding1, dtype=np.float32)
+        b = np.asarray(embedding2, dtype=np.float32)
+        return _cosine_similarity(a, b)
+
     async def get_relevant_context(
         self,
         contract_id: str,
@@ -214,47 +222,32 @@ class RAGService:
         max_context_length: int = 2000
     ) -> str:
         """
-        Get relevant context for a query, optimized for LLM input.
-        
-        Args:
-            contract_id: Contract to search
-            query: User's question
-            max_context_length: Maximum characters to return
-            
-        Returns:
-            Concatenated relevant sections
-            
-        TODO: Backend team - Implement context retrieval
+        Concatenate top chunks until max_context_length. Include simple headers for clarity.
         """
-        if not self.embedding_model:
+        hits = await self.search_contract(contract_id=contract_id, query=query, top_k=8)
+        if not hits:
             return ""
-        
-        # TODO:
-        # 1. Search for relevant chunks
-        # 2. Rank by relevance
-        # 3. Concatenate up to max_context_length
-        # 4. Format for LLM input
-        
-        return ""
-    
+
+        buf: List[str] = []
+        total = 0
+        for h in hits:
+            piece = f"[{h.get('chunk_id')}] (p.{h.get('page', 0)}): {h.get('text','').strip()}"
+            if not piece:
+                continue
+            if total + len(piece) + 2 > max_context_length:
+                break
+            buf.append(piece)
+            total += len(piece) + 2
+
+        return "\n\n".join(buf)
+
     async def remove_contract_from_index(self, contract_id: str) -> bool:
         """
-        Remove a contract from the vector index.
-        
-        Args:
-            contract_id: Contract to remove
-            
-        Returns:
-            bool: Success status
-            
-        TODO: Backend team - Implement index removal
+        Remove a contract from memory index.
         """
-        if contract_id in self.vector_store:
-            del self.vector_store[contract_id]
+        if str(contract_id) in self._store:
+            del self._store[str(contract_id)]
             return True
-        
         return False
 
-
-# Singleton instance
 rag_service = RAGService()

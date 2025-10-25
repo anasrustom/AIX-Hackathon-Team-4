@@ -1,145 +1,229 @@
 """
 Extraction Service
-Handles extracting key information from contract documents.
-
-Backend team should implement:
-- Extract contracting parties (names, types, roles)
-- Extract key dates (effective date, expiration, renewal, etc.)
-- Extract financial terms (amounts, payment schedules, penalties)
-- Extract governing law and jurisdiction
-- Extract contract type and industry classification
-- Extract key obligations and deliverables
-
-This service will be called after OCR/text extraction is complete.
+- Hybrid extraction: heuristics + Gemini JSON-mode
+- Returns structured, evidence-backed data for dashboard & downstream risk analysis
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
+import json
+import re
+import math
+
 import google.generativeai as genai
+
 from src.config.settings import get_settings
 
 settings = get_settings()
 
 
+_CURRENCY_RE = r"(?:USD|QAR|SAR|AED|EUR|GBP|\$|€|£|ر\.ق)"
+_MONEY_RE = rf"{_CURRENCY_RE}\s?\d{{1,3}}(?:,\d{{3}})*(?:\.\d+)?"
+_LAW_HINT = re.compile(r"(?is)Governing\s+Law[:\-]?\s*(.+?)(?:\.|\n)")
+_PARTIES_BLOCK = re.compile(
+    r"(?is)(?:This\s+Agreement\s+is\s+made\s+by\s+and\s+between|This\s+Agreement\s+is\s+between)(.+?)(?:\.\s|NOW,?\s+THEREFORE|WHEREAS)"
+)
+
+def _find_money(full_text: str) -> List[str]:
+    return re.findall(_MONEY_RE, full_text or "")[:25]
+
+def _find_governing_law(full_text: str) -> Optional[str]:
+    m = _LAW_HINT.search(full_text or "")
+    return m.group(1).strip() if m else None
+
+
+def _chunk_text(text: str, approx_tokens: int = 600, stride: int = 90) -> List[Dict[str, Any]]:
+    """
+    Approximate token chunking by words. Keeps context via overlap.
+    """
+    words = (text or "").split()
+    if not words:
+        return []
+    chunks = []
+    step = max(1, approx_tokens - stride)
+    i = 0
+    cidx = 0
+    while i < len(words):
+        seg = " ".join(words[i : i + approx_tokens])
+        if seg.strip():
+            chunks.append({
+                "chunk_id": f"c_{cidx:05d}",
+                "page": 0,
+                "section": None,
+                "text": seg
+            })
+            cidx += 1
+        i += step
+    return chunks
+
+
+EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "doc_id": {"type": "string"},
+        "language": {"type": "string", "enum": ["en", "ar"]},
+        "parties": {"type": "array", "items": {"type": "object"}},
+        "dates": {"type": "object"},
+        "governing_law": {"type": "object"},
+        "financial_terms": {"type": "object"},
+        "obligations": {"type": "array"},
+        "deliverables": {"type": "array"},
+        "definitions_consistency": {"type": "object"},
+        "confidence_overall": {"type": "number"}
+    },
+    "required": ["doc_id", "language", "parties", "dates"]
+}
+
+SYSTEM_EXTRACT_INSTRUCTIONS = (
+    "You are an AI contract analyst. Extract key fields from the provided contract CHUNKS. "
+    "Return ONLY valid JSON matching the provided schema. "
+    "For each field include evidence chunk_ids where possible. "
+    "Normalize dates to ISO-8601 when possible and also return raw string if present. "
+    "If uncertain, set the value to null and confidence < 0.5."
+)
+
+
 class ExtractionService:
     """
-    Service for extracting structured data from contract text using AI.
+    Service for extracting structured data from contract text using Gemini.
     """
-    
+
     def __init__(self):
-        """
-        Initialize the extraction service with Gemini AI.
-        TODO: Backend team - configure Gemini API
-        """
-        if settings.gemini_api_key:
-            genai.configure(api_key=settings.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
-        else:
+        if not settings.gemini_api_key:
             self.model = None
-    
-    async def extract_all(self, contract_text: str) -> Dict:
+            return
+
+        genai.configure(api_key=settings.gemini_api_key)
+
+        self.model = genai.GenerativeModel(
+            model_name="gemini-1.5-pro",
+            generation_config={"response_mime_type": "application/json"}
+        )
+
+    async def extract_all(self, doc_id: str, text: str, language: str = "en") -> Dict:
         """
-        Extract all key information from contract text.
-        
+        Main entry: extracts all key info.
         Args:
-            contract_text: The full text of the contract
-            
+          doc_id: unique id (we pass contract.id as string)
+          text: full contract text
+          language: 'en' or 'ar'
         Returns:
-            dict: Structured data containing:
-                - parties: List[Dict] - Contracting parties
-                - key_dates: List[Dict] - Important dates
-                - financial_terms: List[Dict] - Financial information
-                - governing_law: str - Governing law
-                - jurisdiction: str - Jurisdiction
-                - industry: str - Industry classification
-                - contract_type: str - Type of contract
-                - tags: List[str] - Contract tags
-                
-        TODO: Backend team - Implement extraction logic using Gemini
+          dict with fields:
+           - parties, dates, governing_law, financial_terms, obligations, deliverables,
+             definitions_consistency, confidence_overall
         """
         if not self.model:
             return {
-                "error": "Gemini API not configured",
+                "doc_id": doc_id,
+                "language": language if language in ("en", "ar") else "en",
                 "parties": [],
-                "key_dates": [],
-                "financial_terms": [],
+                "dates": {},
                 "governing_law": None,
-                "jurisdiction": None,
-                "industry": None,
-                "contract_type": None,
-                "tags": []
+                "financial_terms": {},
+                "obligations": [],
+                "deliverables": [],
+                "definitions_consistency": {},
+                "confidence_overall": 0.0
             }
-        
-        # TODO: Implement actual extraction
-        # Suggested approach:
-        # 1. Use Gemini with structured prompts for each data type
-        # 2. Parse and validate the AI responses
-        # 3. Return structured data
-        
-        return {
-            "parties": [],  # TODO: Extract parties
-            "key_dates": [],  # TODO: Extract dates
-            "financial_terms": [],  # TODO: Extract financial terms
-            "governing_law": None,  # TODO: Extract governing law
-            "jurisdiction": None,  # TODO: Extract jurisdiction
-            "industry": None,  # TODO: Classify industry
-            "contract_type": None,  # TODO: Determine contract type
-            "tags": []  # TODO: Generate tags
+
+        chunks = _chunk_text(text, approx_tokens=600, stride=90)
+        llm_chunks = chunks[:40]
+
+        payload = {
+            "schema": EXTRACTION_SCHEMA,
+            "language": language if language in ("en", "ar") else "en",
+            "doc_id": doc_id,
+            "chunks": llm_chunks
         }
-    
+
+        try:
+            prompt_parts = [
+                {"text": SYSTEM_EXTRACT_INSTRUCTIONS},
+                {"text": json.dumps(payload, ensure_ascii=False)}
+            ]
+            resp = self.model.generate_content(contents=[{"role": "user", "parts": prompt_parts}])
+            data = json.loads(resp.text)
+        except Exception as e:
+            data = {
+                "doc_id": doc_id,
+                "language": language if language in ("en", "ar") else "en",
+                "parties": [],
+                "dates": {},
+                "governing_law": None,
+                "financial_terms": {},
+                "obligations": [],
+                "deliverables": [],
+                "definitions_consistency": {},
+                "confidence_overall": 0.0,
+                "error": f"gemini_error: {type(e).__name__}: {str(e)}"
+            }
+
+        full_text = text or ""
+
+        try:
+            money_mentions = _find_money(full_text)
+            if money_mentions:
+                ft = data.setdefault("financial_terms", {})
+                ft.setdefault("amounts", [])
+                seen = set()
+                for m in money_mentions:
+                    if m in seen:
+                        continue
+                    seen.add(m)
+                    ft["amounts"].append({"label": "Detected", "value": None, "raw": m})
+        except Exception:
+            pass
+
+        try:
+            if not data.get("governing_law"):
+                gl = _find_governing_law(full_text)
+                if gl:
+                    data["governing_law"] = {"jurisdiction": gl, "confidence": 0.5}
+        except Exception:
+            pass
+
+        try:
+            if not data.get("parties"):
+                m = _PARTIES_BLOCK.search(full_text)
+                if m:
+                    block = " ".join(m.group(1).split())[:500]
+                    data["parties"] = [{"name": block, "role": None, "address": None, "confidence": 0.4, "evidence_chunks": []}]
+        except Exception:
+            pass
+
+        data.setdefault("doc_id", doc_id)
+        data.setdefault("language", language if language in ("en", "ar") else "en")
+        data.setdefault("parties", [])
+        data.setdefault("dates", {})
+        data.setdefault("financial_terms", {})
+        data.setdefault("obligations", [])
+        data.setdefault("deliverables", [])
+        data.setdefault("definitions_consistency", {})
+        data.setdefault("confidence_overall", 0.5 if data.get("parties") or data.get("dates") else 0.3)
+
+        return data
+
     async def extract_parties(self, contract_text: str) -> List[Dict]:
-        """
-        Extract contracting parties from the contract.
-        
-        Returns:
-            List of dicts with keys: name, type (individual/organization), role (client/vendor/partner/other)
-            
-        TODO: Backend team - Implement party extraction
-        """
-        # TODO: Use Gemini to extract party information
-        return []
-    
+        parties = []
+        try:
+            m = _PARTIES_BLOCK.search(contract_text or "")
+            if m:
+                block = " ".join(m.group(1).split())
+                parties.append({"name": block[:500], "role": None, "address": None, "confidence": 0.4})
+        except Exception:
+            pass
+        return parties
+
     async def extract_dates(self, contract_text: str) -> List[Dict]:
-        """
-        Extract key dates from the contract.
-        
-        Returns:
-            List of dicts with keys: date_type, date, description
-            
-        TODO: Backend team - Implement date extraction
-        """
-        # TODO: Use Gemini to extract dates
         return []
-    
+
     async def extract_financial_terms(self, contract_text: str) -> List[Dict]:
-        """
-        Extract financial terms from the contract.
-        
-        Returns:
-            List of dicts with keys: term_type, amount, currency, schedule, description
-            
-        TODO: Backend team - Implement financial term extraction
-        """
-        # TODO: Use Gemini to extract financial terms
-        return []
+        return [{"raw": m} for m in _find_money(contract_text or "")]
     
     async def extract_governing_law(self, contract_text: str) -> Optional[str]:
-        """
-        Extract the governing law from the contract.
-        
-        TODO: Backend team - Implement governing law extraction
-        """
-        # TODO: Use Gemini to extract governing law
-        return None
+        return _find_governing_law(contract_text or "")
     
     async def extract_jurisdiction(self, contract_text: str) -> Optional[str]:
-        """
-        Extract the jurisdiction from the contract.
-        
-        TODO: Backend team - Implement jurisdiction extraction
-        """
-        # TODO: Use Gemini to extract jurisdiction
         return None
 
 
-# Singleton instance
 extraction_service = ExtractionService()
