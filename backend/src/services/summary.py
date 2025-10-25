@@ -25,6 +25,22 @@ from src.config.settings import get_settings
 
 settings = get_settings()
 
+def _to_str_list(seq, maxn=None):
+    out = []
+    for x in (seq or []):
+        if isinstance(x, str):
+            s = x.strip()
+        elif isinstance(x, dict):
+            # try common keys first; fall back to JSON-ish preview
+            cand = x.get("name") or x.get("title") or x.get("text") or x.get("value")
+            s = str(cand) if cand is not None else json.dumps(x, ensure_ascii=False)[:120]
+        else:
+            s = str(x)
+        if s:
+            out.append(s)
+        if maxn and len(out) >= maxn:
+            break
+    return out
 
 def _chunk_text(text: str, approx_tokens: int = 650, stride: int = 100):
     words = (text or "").split()
@@ -60,7 +76,7 @@ class SummaryService:
         if settings.gemini_api_key:
             genai.configure(api_key=settings.gemini_api_key)
             self.model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
+                model_name="gemini-2.5-flash",
                 generation_config={"response_mime_type": "application/json"}
             )
         else:
@@ -277,9 +293,9 @@ def _summarize_risks(risks: Optional[Dict]) -> str:
 def _infer_purpose(extracted: Optional[Dict]) -> str:
     if not extracted:
         return "Unknown"
-    deliverables = extracted.get("deliverables") or []
+    deliverables = _to_str_list(extracted.get("deliverables"), maxn=3)
     if deliverables:
-        return f"Provision of: {', '.join(deliverables[:3])}"
+        return "Provision of: " + ", ".join(deliverables)
     obligations = extracted.get("obligations") or []
     if obligations:
         return "Define obligations and services between parties."
@@ -298,8 +314,11 @@ def _infer_obligations(extracted: Optional[Dict]) -> Dict[str, List[str]]:
     if not extracted:
         return by_party
     for ob in extracted.get("obligations") or []:
-        party = ob.get("party") or "Unspecified Party"
-        text = ob.get("text") or ""
+        if isinstance(ob, dict):
+            party = ob.get("party") or "Unspecified Party"
+            text  = ob.get("text") or ob.get("title") or ob.get("name") or ""
+        else:
+            party, text = "Unspecified Party", str(ob)
         if not text:
             continue
         by_party.setdefault(party, [])

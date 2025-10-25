@@ -93,8 +93,8 @@ async def upload_contract(
         )
 
         summary = await summary_service.generate_summary(
-            text=text,
-            extracted=extracted,
+            contract_text=text,
+            extracted_data=extracted,
             risks=risks
         )
 

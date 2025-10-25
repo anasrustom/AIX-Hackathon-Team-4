@@ -126,7 +126,7 @@ class RiskService:
         if settings.gemini_api_key:
             genai.configure(api_key=settings.gemini_api_key)
             self.model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
+                model_name="gemini-2.5-flash",
                 generation_config={"response_mime_type": "application/json"}
             )
         else:
