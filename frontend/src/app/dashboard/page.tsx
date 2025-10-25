@@ -31,76 +31,36 @@ export default function DashboardPage() {
   const fetchDashboardStats = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const user = localStorage.getItem('user');
-      const userId = user ? JSON.parse(user).id : null;
       
-      // Fetch contracts to get recent uploads
-      const contractsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts`, {
+      console.log('🔑 Auth Debug:', {
+        hasToken: !!token,
+        tokenLength: token?.length,
+        tokenPreview: token?.substring(0, 20) + '...',
+        apiUrl: process.env.NEXT_PUBLIC_API_URL
+      });
+      
+      // Fetch dashboard stats from backend
+      const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/dashboard/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
-
-      let recentUploads: Contract[] = [];
-      if (contractsResponse.ok) {
-        const contractsData = await contractsResponse.json();
-        let allContracts = contractsData.items || [];
-        
-        // Merge with localStorage data (edited contracts) - user-specific
-        const savedContracts = userId ? localStorage.getItem(`contracts_${userId}`) : null;
-        if (savedContracts) {
-          const localContracts = JSON.parse(savedContracts);
-          // Update fetched contracts with local changes
-          allContracts = allContracts.map((contract: Contract) => {
-            const localVersion = localContracts.find((c: Contract) => c.id === contract.id);
-            return localVersion || contract;
-          });
-          
-          // Add any contracts that only exist in localStorage
-          localContracts.forEach((localContract: Contract) => {
-            if (!allContracts.find((c: Contract) => c.id === localContract.id)) {
-              allContracts.push(localContract);
-            }
-          });
-        }
-        
-        // Sort by upload date and get the 5 most recent
-        recentUploads = allContracts
-          .sort((a: Contract, b: Contract) => {
-            const dateA = new Date(a.upload_date || 0).getTime();
-            const dateB = new Date(b.upload_date || 0).getTime();
-            return dateB - dateA;
-          })
-          .slice(0, 5);
-      }
-
-      // Try to fetch dashboard stats
-      const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/stats`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+      
+      console.log('� Stats Response:', statsResponse.status, statsResponse.statusText);
 
       if (statsResponse.ok) {
         const data = await statsResponse.json();
-        setStats({
-          ...data,
-          recent_uploads: recentUploads,
-        });
+        console.log('✅ Stats data received:', data);
+        setStats(data);
       } else {
-        // Use contracts data to calculate stats
-        const totalContracts = recentUploads.length;
-        const pendingReviews = recentUploads.filter(c => c.status === 'pending').length;
-        const highRiskContracts = recentUploads.filter(c => 
-          c.risks?.some(r => r.severity === 'high' || r.severity === 'critical')
-        ).length;
-
+        console.warn('⚠️ Stats request failed, using fallback data');
+        // Use fallback data
         setStats({
-          total_contracts: totalContracts,
-          pending_reviews: pendingReviews,
-          high_risk_contracts: highRiskContracts,
+          total_contracts: 0,
+          pending_reviews: 0,
+          high_risk_contracts: 0,
           expiring_soon: 0,
-          recent_uploads: recentUploads,
+          recent_uploads: [],
         });
       }
     } catch (error) {

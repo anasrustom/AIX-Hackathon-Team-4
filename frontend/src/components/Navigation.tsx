@@ -8,6 +8,7 @@ export default function Navigation() {
   const pathname = usePathname();
   const { t } = useLanguage();
 
+  // Member navigation items - for logged-in users
   const navItems = [
     {
       name: t('nav.dashboard'),

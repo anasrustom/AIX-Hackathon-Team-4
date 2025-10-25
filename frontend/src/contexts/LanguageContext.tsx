@@ -19,6 +19,7 @@ const translations: Record<Language, Record<string, string>> = {
     'nav.dashboard': 'Dashboard',
     'nav.upload': 'Upload',
     'nav.contracts': 'Contracts',
+    'nav.pricing': 'Pricing',
     'nav.logout': 'Logout',
     
     // Common
@@ -144,6 +145,7 @@ const translations: Record<Language, Record<string, string>> = {
     'nav.dashboard': 'لوحة التحكم',
     'nav.upload': 'رفع',
     'nav.contracts': 'العقود',
+    'nav.pricing': 'الأسعار',
     'nav.logout': 'تسجيل خروج',
     
     // Common

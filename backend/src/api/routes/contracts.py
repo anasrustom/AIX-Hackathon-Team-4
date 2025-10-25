@@ -1,16 +1,41 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, and_, exists, delete
 from sqlalchemy.orm import selectinload
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime, timedelta
+from pydantic import BaseModel
 import json
 
 from src.config.database import get_db
-from src.models.contract import Contract
+from src.models.contract import Contract, KeyDate, DateType, ContractStatus, ContractParty, PartyType, PartyRole, FinancialTerm, TermType
+from src.models.risk import Risk, RiskSeverity, RiskType
+from src.models.clause import Clause
 from src.models.user import User
 from src.api.routes.auth import get_current_user
 
 router = APIRouter()
+
+# Request/Response models
+class RiskCreate(BaseModel):
+    risk_type: str
+    severity: str
+    title: str
+    description: str
+    recommendation: Optional[str] = None
+    clause_reference: Optional[str] = None
+
+class ContractUpdate(BaseModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+    governing_law: Optional[str] = None
+    jurisdiction: Optional[str] = None
+    industry: Optional[str] = None
+    contract_type: Optional[str] = None
+    tags: Optional[List[str]] = None
+    summary: Optional[str] = None
+    purpose: Optional[str] = None
+    scope: Optional[str] = None
 
 @router.get("")
 async def list_contracts(
@@ -230,27 +255,67 @@ async def get_dashboard_stats(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get dashboard statistics.
-    TODO: Backend team needs to optimize queries and add more stats.
+    Get dashboard statistics for the current user.
     """
-    # Total contracts
-    total_result = await db.execute(select(func.count(Contract.id)))
+    # Total contracts for current user
+    total_result = await db.execute(
+        select(func.count(Contract.id)).where(Contract.uploaded_by == current_user.id)
+    )
     total_contracts = total_result.scalar()
     
-    # Pending reviews (processing status)
+    # Pending reviews (pending status = awaiting review) for current user
     pending_result = await db.execute(
-        select(func.count(Contract.id)).where(Contract.status == "processing")
+        select(func.count(Contract.id)).where(
+            Contract.uploaded_by == current_user.id,
+            Contract.status == "pending"
+        )
     )
     pending_reviews = pending_result.scalar()
     
-    # High risk contracts (simplified - needs proper implementation)
-    high_risk_contracts = 0  # TODO: Count contracts with high/critical risks
+    # High risk contracts - count contracts with at least one high or critical severity risk
+    high_risk_subquery = (
+        select(Risk.contract_id)
+        .where(
+            or_(
+                Risk.severity == RiskSeverity.high,
+                Risk.severity == RiskSeverity.critical
+            )
+        )
+        .distinct()
+    )
+    high_risk_result = await db.execute(
+        select(func.count(Contract.id)).where(
+            Contract.uploaded_by == current_user.id,
+            Contract.id.in_(high_risk_subquery)
+        )
+    )
+    high_risk_contracts = high_risk_result.scalar()
     
-    # Expiring soon (simplified - needs proper implementation)
-    expiring_soon = 0  # TODO: Count contracts expiring in next 30 days
+    # Expiring soon - contracts expiring in next 30 days
+    now = datetime.utcnow()
+    thirty_days_from_now = now + timedelta(days=30)
     
-    # Recent uploads
-    recent_query = select(Contract).order_by(Contract.upload_date.desc()).limit(5)
+    expiring_subquery = (
+        select(KeyDate.contract_id)
+        .where(
+            KeyDate.date_type == DateType.expiration_date,
+            KeyDate.date >= now,
+            KeyDate.date <= thirty_days_from_now
+        )
+        .distinct()
+    )
+    expiring_result = await db.execute(
+        select(func.count(Contract.id)).where(
+            Contract.uploaded_by == current_user.id,
+            Contract.id.in_(expiring_subquery)
+        )
+    )
+    expiring_soon = expiring_result.scalar()
+    
+    # Recent uploads for current user
+    recent_query = select(Contract).where(
+        Contract.uploaded_by == current_user.id
+    ).order_by(Contract.upload_date.desc()).limit(5)
     recent_result = await db.execute(recent_query)
     recent_contracts = recent_result.scalars().all()
     
@@ -269,3 +334,127 @@ async def get_dashboard_stats(
             } for c in recent_contracts
         ]
     }
+
+@router.patch("/{contract_id}")
+async def update_contract(
+    contract_id: str,
+    update_data: ContractUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update contract details.
+    """
+    # Get contract
+    query = select(Contract).where(
+        Contract.id == contract_id,
+        Contract.uploaded_by == current_user.id
+    )
+    result = await db.execute(query)
+    contract = result.scalar_one_or_none()
+    
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    
+    # Update fields
+    update_dict = update_data.model_dump(exclude_unset=True)
+    
+    for field, value in update_dict.items():
+        if field == "status":
+            contract.status = ContractStatus[value]
+        elif field == "tags":
+            contract.tags = json.dumps(value)
+        else:
+            setattr(contract, field, value)
+    
+    await db.commit()
+    await db.refresh(contract)
+    
+    return {
+        "id": contract.id,
+        "title": contract.title,
+        "status": contract.status.value,
+        "message": "Contract updated successfully"
+    }
+
+@router.post("/{contract_id}/risks")
+async def add_risk(
+    contract_id: str,
+    risk_data: RiskCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Add a risk to a contract.
+    """
+    # Verify contract exists and belongs to user
+    query = select(Contract).where(
+        Contract.id == contract_id,
+        Contract.uploaded_by == current_user.id
+    )
+    result = await db.execute(query)
+    contract = result.scalar_one_or_none()
+    
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    
+    # Create new risk
+    new_risk = Risk(
+        contract_id=contract_id,
+        risk_type=RiskType[risk_data.risk_type],
+        severity=RiskSeverity[risk_data.severity],
+        title=risk_data.title,
+        description=risk_data.description,
+        recommendation=risk_data.recommendation,
+        clause_reference=risk_data.clause_reference
+    )
+    
+    db.add(new_risk)
+    await db.commit()
+    await db.refresh(new_risk)
+    
+    return {
+        "id": new_risk.id,
+        "contract_id": new_risk.contract_id,
+        "risk_type": new_risk.risk_type.value,
+        "severity": new_risk.severity.value,
+        "title": new_risk.title,
+        "description": new_risk.description,
+        "recommendation": new_risk.recommendation,
+        "clause_reference": new_risk.clause_reference,
+        "message": "Risk added successfully"
+    }
+
+@router.delete("/{contract_id}/risks/{risk_id}")
+async def delete_risk(
+    contract_id: str,
+    risk_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a risk from a contract.
+    """
+    # Verify contract exists and belongs to user
+    query = select(Contract).where(
+        Contract.id == contract_id,
+        Contract.uploaded_by == current_user.id
+    )
+    result = await db.execute(query)
+    contract = result.scalar_one_or_none()
+    
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    
+    # Delete risk
+    delete_query = delete(Risk).where(
+        Risk.id == risk_id,
+        Risk.contract_id == contract_id
+    )
+    result = await db.execute(delete_query)
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Risk not found")
+    
+    return {"message": "Risk deleted successfully"}

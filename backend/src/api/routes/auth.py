@@ -56,14 +56,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         user_id: str = payload.get("sub")
         if user_id is None:
+            print(f"❌ Token validation failed: No user_id in payload")
             raise credentials_exception
-    except JWTError:
+    except JWTError as e:
+        print(f"❌ JWT Error: {e}")
         raise credentials_exception
     
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
+        print(f"❌ User not found in database: {user_id}")
         raise credentials_exception
+    
+    print(f"✅ User authenticated: {user.email} (ID: {user.id})")
     return user
 
 @router.post("/signup")

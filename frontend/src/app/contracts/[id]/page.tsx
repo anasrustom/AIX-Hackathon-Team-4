@@ -27,34 +27,20 @@ export default function ContractDetailPage() {
   const fetchContractDetails = async () => {
     try {
       const token = localStorage.getItem('access_token');
-      const user = localStorage.getItem('user');
-      const userId = user ? JSON.parse(user).id : null;
       
-      // First check localStorage for edited version
-      const savedContracts = userId ? localStorage.getItem(`contracts_${userId}`) : null;
-      let contractData = null;
-      
-      if (savedContracts) {
-        const localContracts = JSON.parse(savedContracts);
-        contractData = localContracts.find((c: Contract) => c.id === contractId);
-      }
-      
-      // If not in localStorage, fetch from API
-      if (!contractData) {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${contractId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
+      // Fetch from API
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${contractId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
 
-        if (response.ok) {
-          contractData = await response.json();
-        }
-      }
-      
-      if (contractData) {
+      if (response.ok) {
+        const contractData = await response.json();
         setContract(contractData);
         setEditedContract(contractData);
+      } else {
+        console.error('Failed to fetch contract:', response.status);
       }
     } catch (error) {
       console.error('Error fetching contract details:', error);
@@ -63,27 +49,46 @@ export default function ContractDetailPage() {
     }
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
     if (editedContract) {
-      const user = localStorage.getItem('user');
-      if (!user) return;
-      
-      const userId = JSON.parse(user).id;
-      
-      // Save to localStorage (simulate API call)
-      const saved = localStorage.getItem(`contracts_${userId}`) || '[]';
-      const contracts = JSON.parse(saved);
-      const index = contracts.findIndex((c: Contract) => c.id === contractId);
-      
-      if (index >= 0) {
-        contracts[index] = editedContract;
-      } else {
-        contracts.push(editedContract);
+      try {
+        const token = localStorage.getItem('access_token');
+        
+        // Prepare update data - only send changed fields
+        const updateData: any = {};
+        if (editedContract.title !== contract?.title) updateData.title = editedContract.title;
+        if (editedContract.status !== contract?.status) updateData.status = editedContract.status;
+        if (editedContract.governing_law !== contract?.governing_law) updateData.governing_law = editedContract.governing_law;
+        if (editedContract.jurisdiction !== contract?.jurisdiction) updateData.jurisdiction = editedContract.jurisdiction;
+        if (editedContract.industry !== contract?.industry) updateData.industry = editedContract.industry;
+        if (editedContract.contract_type !== contract?.contract_type) updateData.contract_type = editedContract.contract_type;
+        if (editedContract.summary !== contract?.summary) updateData.summary = editedContract.summary;
+        if (editedContract.purpose !== contract?.purpose) updateData.purpose = editedContract.purpose;
+        if (editedContract.scope !== contract?.scope) updateData.scope = editedContract.scope;
+        
+        // Update contract in database
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${contractId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updateData),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to update contract');
+        }
+        
+        // Refresh contract data from server
+        await fetchContractDetails();
+        setIsEditing(false);
+        
+        console.log('✅ Contract updated successfully in database');
+      } catch (error) {
+        console.error('❌ Error updating contract:', error);
+        alert('Failed to save changes. Please try again.');
       }
-      
-      localStorage.setItem(`contracts_${userId}`, JSON.stringify(contracts));
-      setContract(editedContract);
-      setIsEditing(false);
     }
   };
 
@@ -144,26 +149,55 @@ export default function ContractDetailPage() {
     }
   };
 
-  const addRisk = (risk: any) => {
-    if (editedContract) {
-      const newRisk = {
-        id: Date.now().toString(),
-        contract_id: contractId,
-        ...risk
-      };
-      setEditedContract({
-        ...editedContract,
-        risks: [...(editedContract.risks || []), newRisk]
+  const addRisk = async (risk: any) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      
+      // Add risk to database
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${contractId}/risks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(risk),
       });
+      
+      if (!response.ok) {
+        throw new Error('Failed to add risk');
+      }
+      
+      // Refresh contract data to get the new risk with proper ID
+      await fetchContractDetails();
+      console.log('✅ Risk added successfully to database');
+    } catch (error) {
+      console.error('❌ Error adding risk:', error);
+      alert('Failed to add risk. Please try again.');
     }
   };
 
-  const removeRisk = (riskId: string) => {
-    if (editedContract) {
-      setEditedContract({
-        ...editedContract,
-        risks: editedContract.risks?.filter(r => r.id !== riskId) || []
+  const removeRisk = async (riskId: string) => {
+    try {
+      const token = localStorage.getItem('access_token');
+      
+      // Delete risk from database
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/${contractId}/risks/${riskId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
       });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete risk');
+      }
+      
+      // Refresh contract data
+      await fetchContractDetails();
+      console.log('✅ Risk deleted successfully from database');
+    } catch (error) {
+      console.error('❌ Error deleting risk:', error);
+      alert('Failed to delete risk. Please try again.');
     }
   };
 

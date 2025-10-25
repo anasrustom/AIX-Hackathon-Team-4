@@ -1,3 +1,6 @@
+import Image from 'next/image';
+import LogoSVG from '@/assets/logo.svg';
+
 export default function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 'xl' }) {
   const textSizes = {
     sm: 'text-xl',
@@ -7,10 +10,10 @@ export default function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 'xl'
   };
 
   const iconSizes = {
-    sm: 'w-5 h-5',
-    md: 'w-7 h-7',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16',
+    sm: { width: 24, height: 24 },
+    md: { width: 32, height: 32 },
+    lg: { width: 56, height: 56 },
+    xl: { width: 80, height: 80 },
   };
 
   const spacing = {
@@ -23,9 +26,14 @@ export default function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' | 'xl'
   return (
     <div className={`flex items-center ${spacing[size]} transition-smooth hover:scale-105`}>
       <div className="relative">
-        <svg className={`${iconSizes[size]} text-primary-600`} fill="currentColor" viewBox="0 0 24 24">
-          <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
+        <Image 
+          src={LogoSVG} 
+          alt="Klara Logo" 
+          width={iconSizes[size].width} 
+          height={iconSizes[size].height}
+          className="object-contain"
+          priority
+        />
       </div>
       <span className={`${textSizes[size]} font-bold bg-gradient-to-r from-primary-600 to-primary-800 bg-clip-text text-transparent`}>
         Klara
