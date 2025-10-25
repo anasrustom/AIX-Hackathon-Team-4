@@ -15,7 +15,7 @@ interface StatsCardProps {
 const colorClasses = {
   primary: {
     bg: 'bg-primary-50',
-    text: 'text-primary-900',
+    text: 'text-primary-600',
     icon: 'text-primary-600',
     gradient: 'from-primary-500 to-primary-700',
   },

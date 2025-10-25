@@ -52,13 +52,13 @@ export default function Navigation() {
                   group flex items-center gap-2 px-4 py-4 text-sm font-medium transition-smooth
                   border-b-2 relative overflow-hidden
                   ${isActive 
-                    ? 'border-primary-900 text-primary-900' 
-                    : 'border-transparent text-gray-600 hover:text-primary-900 hover:border-gray-300'
+                    ? 'border-primary-600 text-primary-600' 
+                    : 'border-transparent text-gray-600 hover:text-primary-600 hover:border-gray-300'
                   }
                 `}
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
-                <span className={`transition-smooth ${isActive ? 'text-primary-900' : 'text-gray-400 group-hover:text-primary-900'}`}>
+                <span className={`transition-smooth ${isActive ? 'text-primary-600' : 'text-gray-400 group-hover:text-primary-600'}`}>
                   {item.icon}
                 </span>
                 {item.name}

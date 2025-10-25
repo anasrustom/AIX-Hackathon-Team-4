@@ -37,6 +37,9 @@ async def list_contracts(
         selectinload(Contract.risks)
     )
     
+    # Filter by current user - only show their contracts
+    query = query.where(Contract.uploaded_by == current_user.id)
+    
     # Apply filters
     if search:
         query = query.where(
@@ -143,7 +146,10 @@ async def get_contract(
     Get detailed information about a specific contract.
     TODO: Backend team needs to implement access control.
     """
-    query = select(Contract).where(Contract.id == contract_id).options(
+    query = select(Contract).where(
+        Contract.id == contract_id,
+        Contract.uploaded_by == current_user.id  # Only allow user to access their own contracts
+    ).options(
         selectinload(Contract.parties),
         selectinload(Contract.key_dates),
         selectinload(Contract.financial_terms),

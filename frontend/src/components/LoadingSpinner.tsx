@@ -15,14 +15,14 @@ export default function LoadingSpinner({ size = 'md', fullScreen = false }: Load
 
   const spinner = (
     <div className="flex flex-col items-center justify-center gap-4">
-      <div className={`${sizeClasses[size]} border-primary-200 border-t-primary-900 rounded-full animate-spin`} />
+      <div className={`${sizeClasses[size]} border-primary-200 border-t-primary-600 rounded-full animate-spin`} />
       {fullScreen && (
         <div className="flex flex-col items-center gap-2 animate-pulse">
           <p className="text-gray-600 font-medium">Loading...</p>
           <div className="flex gap-1">
-            <div className="w-2 h-2 bg-primary-900 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-            <div className="w-2 h-2 bg-primary-900 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-            <div className="w-2 h-2 bg-primary-900 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+            <div className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+            <div className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+            <div className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
           </div>
         </div>
       )}

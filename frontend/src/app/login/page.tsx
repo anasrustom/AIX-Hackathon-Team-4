@@ -52,8 +52,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-light-gray py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-900/10 rounded-full blur-3xl animate-pulse-slow" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-secondary-900/10 rounded-full blur-3xl animate-pulse-slow" style={{ animationDelay: '1s' }} />
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary-600/10 rounded-full blur-3xl animate-pulse-slow" />
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-secondary-600/10 rounded-full blur-3xl animate-pulse-slow" style={{ animationDelay: '1s' }} />
       </div>
 
       {/* Language Switcher - Top Right */}
@@ -66,13 +66,10 @@ export default function LoginPage() {
           <div className="flex justify-center mb-6">
             <Logo size="xl" />
           </div>
-          <h2 className="text-4xl font-extrabold text-gray-900 mb-2">
-            {t('dashboard.title')}
-          </h2>
-          <p className="text-gray-600 text-lg">
+          <p className="text-gray-600 text-lg mb-2">
             {t('dashboard.subtitle')}
           </p>
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-sm text-gray-500">
             {t('auth.login')}
           </p>
         </div>
@@ -172,7 +169,7 @@ export default function LoginPage() {
             <div className="text-center">
               <p className="text-sm text-gray-600">
                 {t('auth.noAccount')}{' '}
-                <Link href="/signup" className="font-semibold text-primary-900 hover:text-primary-700 transition-smooth">
+                <Link href="/signup" className="font-semibold text-primary-600 hover:text-primary-700 transition-smooth">
                   {t('auth.signUpHere')} →
                 </Link>
               </p>
@@ -183,7 +180,7 @@ export default function LoginPage() {
         {/* Language Support Badge */}
         <div className="text-center animate-fade-in" style={{ animationDelay: '0.4s' }}>
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-soft">
-            <svg className="w-5 h-5 text-primary-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
             </svg>
             <span className="text-sm font-medium text-gray-700">

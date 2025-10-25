@@ -12,7 +12,7 @@ export default function LanguageSwitcher() {
   return (
     <button
       onClick={toggleLanguage}
-      className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-primary-900 text-primary-900 rounded-lg hover:bg-primary-50 transition-smooth shadow-sm hover:shadow-md group"
+      className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-primary-600 text-primary-600 rounded-lg hover:bg-primary-50 transition-smooth shadow-sm hover:shadow-md group"
       aria-label={language === 'en' ? 'Switch to Arabic' : 'Switch to English'}
     >
       {/* Globe Icon */}

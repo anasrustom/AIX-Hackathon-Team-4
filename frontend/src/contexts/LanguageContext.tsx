@@ -52,7 +52,7 @@ const translations: Record<Language, Record<string, string>> = {
     'auth.signUpHere': 'Sign up here',
     
     // Dashboard
-    'dashboard.title': 'AI CLM Dashboard',
+    'dashboard.title': 'Klara Dashboard',
     'dashboard.subtitle': 'Your intelligent contract lifecycle management system',
     'dashboard.welcomeBack': 'Welcome back',
     'dashboard.stats.total': 'Total Contracts',
@@ -177,7 +177,7 @@ const translations: Record<Language, Record<string, string>> = {
     'auth.signUpHere': 'أنشئ حسابك هنا',
     
     // Dashboard
-    'dashboard.title': 'لوحة تحكم إدارة دورة حياة العقود بالذكاء الاصطناعي',
+    'dashboard.title': 'لوحة تحكم كلارا',
     'dashboard.subtitle': 'نظامك الذكي لإدارة دورة حياة العقود',
     'dashboard.welcomeBack': 'مرحباً بعودتك',
     'dashboard.stats.total': 'إجمالي العقود',

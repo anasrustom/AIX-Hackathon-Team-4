@@ -8,6 +8,7 @@ import Header from '@/components/Header';
 import Navigation from '@/components/Navigation';
 import StatsCard from '@/components/StatsCard';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import AIChatSidebar from '@/components/AIChatSidebar';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function DashboardPage() {
@@ -15,6 +16,7 @@ export default function DashboardPage() {
   const { t } = useLanguage();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -28,18 +30,79 @@ export default function DashboardPage() {
 
   const fetchDashboardStats = async () => {
     try {
-      // TODO: Replace with actual API call when backend is ready
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/stats`, {
+      const user = localStorage.getItem('user');
+      const userId = user ? JSON.parse(user).id : null;
+      
+      // Fetch contracts to get recent uploads
+      const contractsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
-      if (!response.ok) throw new Error('Failed to fetch stats');
-      
-      const data = await response.json();
-      setStats(data);
+      let recentUploads: Contract[] = [];
+      if (contractsResponse.ok) {
+        const contractsData = await contractsResponse.json();
+        let allContracts = contractsData.items || [];
+        
+        // Merge with localStorage data (edited contracts) - user-specific
+        const savedContracts = userId ? localStorage.getItem(`contracts_${userId}`) : null;
+        if (savedContracts) {
+          const localContracts = JSON.parse(savedContracts);
+          // Update fetched contracts with local changes
+          allContracts = allContracts.map((contract: Contract) => {
+            const localVersion = localContracts.find((c: Contract) => c.id === contract.id);
+            return localVersion || contract;
+          });
+          
+          // Add any contracts that only exist in localStorage
+          localContracts.forEach((localContract: Contract) => {
+            if (!allContracts.find((c: Contract) => c.id === localContract.id)) {
+              allContracts.push(localContract);
+            }
+          });
+        }
+        
+        // Sort by upload date and get the 5 most recent
+        recentUploads = allContracts
+          .sort((a: Contract, b: Contract) => {
+            const dateA = new Date(a.upload_date || 0).getTime();
+            const dateB = new Date(b.upload_date || 0).getTime();
+            return dateB - dateA;
+          })
+          .slice(0, 5);
+      }
+
+      // Try to fetch dashboard stats
+      const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (statsResponse.ok) {
+        const data = await statsResponse.json();
+        setStats({
+          ...data,
+          recent_uploads: recentUploads,
+        });
+      } else {
+        // Use contracts data to calculate stats
+        const totalContracts = recentUploads.length;
+        const pendingReviews = recentUploads.filter(c => c.status === 'pending').length;
+        const highRiskContracts = recentUploads.filter(c => 
+          c.risks?.some(r => r.severity === 'high' || r.severity === 'critical')
+        ).length;
+
+        setStats({
+          total_contracts: totalContracts,
+          pending_reviews: pendingReviews,
+          high_risk_contracts: highRiskContracts,
+          expiring_soon: 0,
+          recent_uploads: recentUploads,
+        });
+      }
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
       // Mock data for development
@@ -148,7 +211,7 @@ export default function DashboardPage() {
 
           <Link href="/contracts" className="card-hover group animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
             <div className="p-6 text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-secondary-900 to-secondary-700 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
+              <div className="w-16 h-16 bg-gradient-to-br from-secondary-600 to-secondary-700 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
@@ -158,7 +221,11 @@ export default function DashboardPage() {
             </div>
           </Link>
 
-          <div className="card-hover group cursor-pointer animate-fade-in-up" style={{ animationDelay: '0.7s' }}>
+          <div 
+            className="card-hover group cursor-pointer animate-fade-in-up" 
+            style={{ animationDelay: '0.7s' }}
+            onClick={() => setIsChatOpen(true)}
+          >
             <div className="p-6 text-center">
               <div className="w-16 h-16 bg-gradient-to-br from-green-600 to-green-500 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -176,7 +243,7 @@ export default function DashboardPage() {
           <div className="px-6 py-5 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">{t('dashboard.recentUploads')}</h2>
-              <Link href="/contracts" className="text-sm font-medium text-primary-900 hover:text-primary-700 transition-smooth">
+              <Link href="/contracts" className="text-sm font-medium text-primary-600 hover:text-primary-700 transition-smooth">
                 {t('dashboard.viewAll')} →
               </Link>
             </div>
@@ -192,14 +259,14 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center gap-4 flex-1">
                       <div className="w-12 h-12 bg-primary-50 rounded-lg flex items-center justify-center group-hover:scale-110 transition-smooth">
-                        <svg className="w-6 h-6 text-primary-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
                         <Link 
                           href={`/contracts/${contract.id}`} 
-                          className="text-base font-semibold text-gray-900 hover:text-primary-900 transition-smooth block truncate"
+                          className="text-base font-semibold text-gray-900 hover:text-primary-600 transition-smooth block truncate"
                         >
                           {contract.title}
                         </Link>
@@ -215,7 +282,7 @@ export default function DashboardPage() {
                       }`}>
                         {contract.status}
                       </span>
-                      <svg className="w-5 h-5 text-gray-400 group-hover:text-primary-900 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-gray-400 group-hover:text-primary-600 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </div>
@@ -241,6 +308,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* AI Chat Sidebar */}
+      <AIChatSidebar isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} chatId="dashboard" />
     </div>
   );
 }
