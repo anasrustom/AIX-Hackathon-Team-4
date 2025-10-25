@@ -16,9 +16,9 @@ const cairo = Cairo({
 });
 
 export const metadata: Metadata = {
-  title: "AI Contract Lifecycle Management",
-  description: "AI-powered contract analysis and management platform supporting English and Arabic",
-  keywords: ["contract management", "AI", "legal tech", "document analysis", "CLM"],
+  title: "Klara - AI Contract Lifecycle Management",
+  description: "Klara: AI-powered contract analysis and management platform supporting English and Arabic",
+  keywords: ["contract management", "AI", "legal tech", "document analysis", "CLM", "Klara"],
   icons: {
     icon: '/favicon.svg',
     apple: '/favicon.svg',

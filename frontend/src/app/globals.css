@@ -4,20 +4,20 @@
 
 /* Color Variables - Easily changeable */
 :root {
-  --color-primary: #441768;
-  --color-secondary: #1A2155;
+  --color-primary: #1428A0;
+  --color-secondary: #0D1A6B;
   --color-dark: #000000;
   --color-light: #FFFFFF;
   --color-light-gray: #F2F2F2;
   
   /* Derived colors */
-  --color-primary-light: rgba(68, 23, 104, 0.1);
-  --color-primary-lighter: rgba(68, 23, 104, 0.05);
-  --color-secondary-light: rgba(26, 33, 85, 0.1);
+  --color-primary-light: rgba(20, 40, 160, 0.1);
+  --color-primary-lighter: rgba(20, 40, 160, 0.05);
+  --color-secondary-light: rgba(13, 26, 107, 0.1);
   
   /* Gradients */
   --gradient-primary: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-  --gradient-primary-soft: linear-gradient(135deg, rgba(68, 23, 104, 0.8) 0%, rgba(26, 33, 85, 0.8) 100%);
+  --gradient-primary-soft: linear-gradient(135deg, rgba(20, 40, 160, 0.8) 0%, rgba(13, 26, 107, 0.8) 100%);
 }
 
 /* Base Styles */
@@ -104,7 +104,7 @@ html[lang="ar"] body {
   
   .hover-lift:hover {
     transform: translateY(-4px);
-    box-shadow: 0 10px 40px -10px rgba(68, 23, 104, 0.25);
+    box-shadow: 0 10px 40px -10px rgba(20, 40, 160, 0.25);
   }
   
   .glass-effect {
@@ -128,19 +128,19 @@ html[lang="ar"] body {
   }
   
   .btn-primary {
-    @apply bg-primary-900 text-white hover:bg-primary-800 hover:shadow-soft focus:outline-none focus:ring-2 focus:ring-primary-900 focus:ring-offset-2;
+    @apply bg-primary-600 text-white hover:bg-primary-700 hover:shadow-soft focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-2;
   }
   
   .btn-secondary {
-    @apply bg-secondary-900 text-white hover:bg-secondary-800 hover:shadow-soft focus:outline-none focus:ring-2 focus:ring-secondary-900 focus:ring-offset-2;
+    @apply bg-secondary-600 text-white hover:bg-secondary-700 hover:shadow-soft focus:outline-none focus:ring-2 focus:ring-secondary-600 focus:ring-offset-2;
   }
   
   .btn-outline {
-    @apply border-2 border-primary-900 text-primary-900 hover:bg-primary-900 hover:text-white focus:outline-none focus:ring-2 focus:ring-primary-900 focus:ring-offset-2;
+    @apply border-2 border-primary-600 text-primary-600 hover:bg-primary-600 hover:text-white focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-2;
   }
   
   .btn-ghost {
-    @apply text-primary-900 hover:bg-primary-50 focus:outline-none focus:ring-2 focus:ring-primary-900 focus:ring-offset-2;
+    @apply text-primary-600 hover:bg-primary-50 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-2;
   }
   
   /* Card Styles */
@@ -159,7 +159,7 @@ html[lang="ar"] body {
   
   /* Input Styles */
   .input {
-    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-900 focus:border-transparent transition-smooth;
+    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition-smooth;
   }
   
   .input-error {
@@ -188,13 +188,13 @@ html[lang="ar"] body {
   }
   
   .badge-primary {
-    @apply bg-primary-100 text-primary-900;
+    @apply bg-primary-100 text-primary-600;
   }
 }
 
 /* Loading Spinner */
 .spinner {
-  border: 3px solid rgba(68, 23, 104, 0.1);
+  border: 3px solid rgba(20, 40, 160, 0.1);
   border-radius: 50%;
   border-top: 3px solid var(--color-primary);
   width: 40px;

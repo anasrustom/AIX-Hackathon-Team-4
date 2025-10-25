@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import Navigation from '@/components/Navigation';
@@ -14,6 +14,14 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [dragActive, setDragActive] = useState(false);
+
+  // Check if user is authenticated
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/login');
+    }
+  }, [router]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -73,7 +81,12 @@ export default function UploadPage() {
 
       const token = localStorage.getItem('access_token');
       
-      // TODO: Replace with actual API call when backend is ready
+      if (!token) {
+        setError('You are not authenticated. Please log in.');
+        router.push('/login');
+        return;
+      }
+      
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/upload`, {
         method: 'POST',
         headers: {
@@ -82,8 +95,17 @@ export default function UploadPage() {
         body: formData,
       });
 
+      if (response.status === 401) {
+        setError('Session expired. Please log in again.');
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+        setTimeout(() => router.push('/login'), 2000);
+        return;
+      }
+
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || 'Upload failed');
       }
 
       const data = await response.json();
@@ -131,7 +153,7 @@ export default function UploadPage() {
                 className={`
                   relative border-2 border-dashed rounded-xl p-12 text-center transition-smooth
                   ${dragActive 
-                    ? 'border-primary-900 bg-primary-50' 
+                    ? 'border-primary-600 bg-primary-50' 
                     : selectedFile
                     ? 'border-green-500 bg-green-50'
                     : 'border-gray-300 hover:border-primary-500 hover:bg-gray-50'
@@ -240,12 +262,12 @@ export default function UploadPage() {
               <div className="bg-gradient-primary-light border border-primary-200 rounded-xl p-6">
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0">
-                    <svg className="w-8 h-8 text-primary-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-8 h-8 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <h4 className="text-lg font-semibold text-primary-900 mb-3">{t('upload.features')}</h4>
+                    <h4 className="text-lg font-semibold text-primary-600 mb-3">{t('upload.features')}</h4>
                     <ul className="space-y-2">
                       {[
                         t('upload.feature.extract'),

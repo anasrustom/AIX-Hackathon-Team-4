@@ -8,6 +8,7 @@ import Header from '@/components/Header';
 import Navigation from '@/components/Navigation';
 import StatsCard from '@/components/StatsCard';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import AIChatSidebar from '@/components/AIChatSidebar';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function DashboardPage() {
@@ -15,6 +16,7 @@ export default function DashboardPage() {
   const { t } = useLanguage();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -28,18 +30,39 @@ export default function DashboardPage() {
 
   const fetchDashboardStats = async () => {
     try {
-      // TODO: Replace with actual API call when backend is ready
       const token = localStorage.getItem('access_token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/dashboard/stats`, {
+      
+      console.log('🔑 Auth Debug:', {
+        hasToken: !!token,
+        tokenLength: token?.length,
+        tokenPreview: token?.substring(0, 20) + '...',
+        apiUrl: process.env.NEXT_PUBLIC_API_URL
+      });
+      
+      // Fetch dashboard stats from backend
+      const statsResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts/dashboard/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
-
-      if (!response.ok) throw new Error('Failed to fetch stats');
       
-      const data = await response.json();
-      setStats(data);
+      console.log('� Stats Response:', statsResponse.status, statsResponse.statusText);
+
+      if (statsResponse.ok) {
+        const data = await statsResponse.json();
+        console.log('✅ Stats data received:', data);
+        setStats(data);
+      } else {
+        console.warn('⚠️ Stats request failed, using fallback data');
+        // Use fallback data
+        setStats({
+          total_contracts: 0,
+          pending_reviews: 0,
+          high_risk_contracts: 0,
+          expiring_soon: 0,
+          recent_uploads: [],
+        });
+      }
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
       // Mock data for development
@@ -148,7 +171,7 @@ export default function DashboardPage() {
 
           <Link href="/contracts" className="card-hover group animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
             <div className="p-6 text-center">
-              <div className="w-16 h-16 bg-gradient-to-br from-secondary-900 to-secondary-700 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
+              <div className="w-16 h-16 bg-gradient-to-br from-secondary-600 to-secondary-700 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
@@ -158,7 +181,11 @@ export default function DashboardPage() {
             </div>
           </Link>
 
-          <div className="card-hover group cursor-pointer animate-fade-in-up" style={{ animationDelay: '0.7s' }}>
+          <div 
+            className="card-hover group cursor-pointer animate-fade-in-up" 
+            style={{ animationDelay: '0.7s' }}
+            onClick={() => setIsChatOpen(true)}
+          >
             <div className="p-6 text-center">
               <div className="w-16 h-16 bg-gradient-to-br from-green-600 to-green-500 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -176,7 +203,7 @@ export default function DashboardPage() {
           <div className="px-6 py-5 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-gray-900">{t('dashboard.recentUploads')}</h2>
-              <Link href="/contracts" className="text-sm font-medium text-primary-900 hover:text-primary-700 transition-smooth">
+              <Link href="/contracts" className="text-sm font-medium text-primary-600 hover:text-primary-700 transition-smooth">
                 {t('dashboard.viewAll')} →
               </Link>
             </div>
@@ -192,14 +219,14 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center gap-4 flex-1">
                       <div className="w-12 h-12 bg-primary-50 rounded-lg flex items-center justify-center group-hover:scale-110 transition-smooth">
-                        <svg className="w-6 h-6 text-primary-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                       </div>
                       <div className="flex-1 min-w-0">
                         <Link 
                           href={`/contracts/${contract.id}`} 
-                          className="text-base font-semibold text-gray-900 hover:text-primary-900 transition-smooth block truncate"
+                          className="text-base font-semibold text-gray-900 hover:text-primary-600 transition-smooth block truncate"
                         >
                           {contract.title}
                         </Link>
@@ -215,7 +242,7 @@ export default function DashboardPage() {
                       }`}>
                         {contract.status}
                       </span>
-                      <svg className="w-5 h-5 text-gray-400 group-hover:text-primary-900 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-gray-400 group-hover:text-primary-600 transition-smooth" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
                     </div>
@@ -241,6 +268,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* AI Chat Sidebar */}
+      <AIChatSidebar isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} chatId="dashboard" />
     </div>
   );
 }

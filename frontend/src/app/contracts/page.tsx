@@ -6,6 +6,7 @@ import type { Contract } from '@/types';
 import Header from '@/components/Header';
 import Navigation from '@/components/Navigation';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import AIChatSidebar from '@/components/AIChatSidebar';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function ContractsPage() {
@@ -18,9 +19,7 @@ export default function ContractsPage() {
     governing_law: '',
     status: '',
   });
-  const [showChat, setShowChat] = useState(false);
-  const [chatMessage, setChatMessage] = useState('');
-  const [chatHistory, setChatHistory] = useState<Array<{ question: string; answer: string }>>([]);
+  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
 
   useEffect(() => {
     fetchContracts();
@@ -29,6 +28,8 @@ export default function ContractsPage() {
   const fetchContracts = async () => {
     try {
       const token = localStorage.getItem('access_token');
+      const user = localStorage.getItem('user');
+      const userId = user ? JSON.parse(user).id : null;
       const queryParams = new URLSearchParams(filters as any).toString();
       
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contracts?${queryParams}`, {
@@ -37,41 +38,66 @@ export default function ContractsPage() {
         },
       });
 
+      let fetchedContracts: Contract[] = [];
       if (response.ok) {
         const data = await response.json();
-        setContracts(data.items || []);
-      } else {
-        setContracts([]);
+        fetchedContracts = data.items || [];
       }
+
+      // Merge with localStorage data (edited contracts) - user-specific
+      const savedContracts = userId ? localStorage.getItem(`contracts_${userId}`) : null;
+      if (savedContracts) {
+        const localContracts = JSON.parse(savedContracts);
+        // Update fetched contracts with local changes
+        fetchedContracts = fetchedContracts.map(contract => {
+          const localVersion = localContracts.find((c: Contract) => c.id === contract.id);
+          return localVersion || contract;
+        });
+        
+        // Add any contracts that only exist in localStorage
+        localContracts.forEach((localContract: Contract) => {
+          if (!fetchedContracts.find(c => c.id === localContract.id)) {
+            fetchedContracts.push(localContract);
+          }
+        });
+      }
+
+      // Apply client-side filters
+      let filteredContracts = fetchedContracts;
+      
+      if (filters.search) {
+        const searchLower = filters.search.toLowerCase();
+        filteredContracts = filteredContracts.filter(contract =>
+          contract.title?.toLowerCase().includes(searchLower) ||
+          contract.file_name?.toLowerCase().includes(searchLower) ||
+          contract.summary?.toLowerCase().includes(searchLower)
+        );
+      }
+      
+      if (filters.industry) {
+        filteredContracts = filteredContracts.filter(contract =>
+          contract.industry?.toLowerCase() === filters.industry.toLowerCase()
+        );
+      }
+      
+      if (filters.governing_law) {
+        filteredContracts = filteredContracts.filter(contract =>
+          contract.governing_law === filters.governing_law
+        );
+      }
+      
+      if (filters.status) {
+        filteredContracts = filteredContracts.filter(contract =>
+          contract.status === filters.status
+        );
+      }
+
+      setContracts(filteredContracts);
     } catch (error) {
       console.error('Error fetching contracts:', error);
       setContracts([]);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleAskQuestion = async () => {
-    if (!chatMessage.trim()) return;
-
-    try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ message: chatMessage }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setChatHistory([...chatHistory, { question: chatMessage, answer: data.response }]);
-        setChatMessage('');
-      }
-    } catch (error) {
-      console.error('Error asking question:', error);
     }
   };
 
@@ -167,63 +193,22 @@ export default function ContractsPage() {
               </div>
             </div>
 
-            <div className="card animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-primary-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                    </svg>
-                    <h3 className="text-lg font-bold text-gray-900">{t('contracts.aiAssistant')}</h3>
-                  </div>
-                  <button
-                    onClick={() => setShowChat(!showChat)}
-                    className="text-sm font-medium text-primary-900 hover:text-primary-700 transition-smooth"
-                  >
-                    {showChat ? t('common.hide') : t('common.show')}
-                  </button>
+            {/* AI Assistant Button */}
+            <button
+              onClick={() => setIsAIChatOpen(true)}
+              className="card card-hover animate-fade-in-up cursor-pointer w-full"
+              style={{ animationDelay: '0.2s' }}
+            >
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-gradient-to-br from-green-600 to-green-500 mx-auto rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-smooth shadow-glow">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
                 </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('contracts.aiAssistant')}</h3>
+                <p className="text-sm text-gray-600">Ask AI about your contracts</p>
               </div>
-
-              {showChat && (
-                <div className="p-6 space-y-4 animate-fade-in">
-                  {chatHistory.length > 0 && (
-                    <div className="max-h-60 overflow-y-auto space-y-3">
-                      {chatHistory.map((chat, idx) => (
-                        <div key={idx} className="space-y-2 animate-fade-in-up" style={{ animationDelay: `${idx * 0.1}s` }}>
-                          <div className="bg-primary-50 p-3 rounded-lg">
-                            <p className="text-sm font-medium text-primary-900">{chat.question}</p>
-                          </div>
-                          <div className="bg-gray-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-700">{chat.answer}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      className="input flex-1 text-sm"
-                      placeholder={t('contracts.askQuestion')}
-                      value={chatMessage}
-                      onChange={(e) => setChatMessage(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleAskQuestion()}
-                    />
-                    <button
-                      onClick={handleAskQuestion}
-                      className="btn btn-primary text-sm px-4"
-                      disabled={!chatMessage.trim()}
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            </button>
           </div>
 
           <div className="flex-1">
@@ -338,6 +323,9 @@ export default function ContractsPage() {
           </div>
         </div>
       </main>
+
+      {/* AI Chat Sidebar */}
+      <AIChatSidebar isOpen={isAIChatOpen} onClose={() => setIsAIChatOpen(false)} chatId="contracts" />
     </div>
   );
 }

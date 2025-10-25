@@ -8,33 +8,33 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Primary brand color - Deep Purple
+        // Primary brand color - Samsung Blue
         primary: {
-          50: '#f5f3ff',
-          100: '#ede9fe',
-          200: '#ddd6fe',
-          300: '#c4b5fd',
-          400: '#a78bfa',
-          500: '#8b5cf6',
-          600: '#7c3aed',
-          700: '#6d28d9',
-          800: '#5b21b6',
-          900: '#441768', // Main brand color
-          950: '#2e0f47',
+          50: '#e8eeff',
+          100: '#d4ddff',
+          200: '#b3c3ff',
+          300: '#8ba0ff',
+          400: '#6279ff',
+          500: '#3d56ff',
+          600: '#1428A0', // Main Samsung Blue
+          700: '#0f1f7a',
+          800: '#0d1a6b',
+          900: '#0a1450',
+          950: '#060d33',
         },
-        // Secondary - Dark Navy
+        // Secondary - Darker Blue
         secondary: {
-          50: '#f8f9fb',
-          100: '#f1f3f7',
-          200: '#e3e7ef',
-          300: '#c8d0e0',
-          400: '#a6b3c8',
-          500: '#8898b0',
-          600: '#6e7e98',
-          700: '#59687e',
-          800: '#4a5669',
-          900: '#1A2155', // Dark navy accent
-          950: '#0f1430',
+          50: '#e8ecf7',
+          100: '#d4dded',
+          200: '#b3c3e0',
+          300: '#8ba0ce',
+          400: '#6279bc',
+          500: '#3d56a8',
+          600: '#0D1A6B', // Dark blue accent
+          700: '#0a1452',
+          800: '#081042',
+          900: '#060d33',
+          950: '#040820',
         },
         // Neutral colors
         dark: '#000000',
