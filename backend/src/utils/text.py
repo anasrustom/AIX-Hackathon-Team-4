@@ -47,3 +47,11 @@ def safe_truncate(s: str, n: int) -> str:
     if not isinstance(s, str):
         return s
     return s if len(s) <= n else (s[: max(0, n - 1)] + "…")
+
+import re
+
+def strip_long_underscores(s: str, min_run: int = 5) -> str:
+    """Remove signature-line underscores (e.g., '__________') to avoid fake entity extraction."""
+    if not isinstance(s, str):
+        return s
+    return re.sub(rf"[_]{{{min_run},}}", " ", s)

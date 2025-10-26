@@ -18,7 +18,7 @@ from src.config.settings import get_settings
 settings = get_settings()
 
 DEFAULT_EMBEDDINGS_MODEL = getattr(
-    settings, "embeddings_model", "intfloat/multilingual-e5-large"
+    settings, "embeddings_model", "intfloat/multilingual-e5-small"
 )
 
 def _normalize_embeddings(X: np.ndarray) -> np.ndarray:
@@ -29,27 +29,52 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-12
     return float(np.dot(a, b) / denom)
 
-def _word_chunks(text: str, approx_tokens: int = 220, overlap: int = 30) -> List[Dict[str, Any]]:
+def _word_chunks(
+    text: str,
+    approx_tokens: int = 220,
+    overlap: int = 30,
+    page_offsets: Optional[List[int]] = None
+) -> List[Dict[str, Any]]:
     """
     Rough token-aware chunking by words with overlap.
-    approx_tokens ~ #words (not exact tokens, but works well in practice).
+    If page_offsets is provided (list of starting char positions per page in normalized text),
+    we approximate the chunk's page from its starting char.
     """
     words = (text or "").split()
     if not words:
         return []
+
+    # Prefix char lengths to estimate starting char at word index i
+    prefix = [0]
+    for w in words:
+        prefix.append(prefix[-1] + len(w) + 1)  # +1 for space/newline approx
+
+    def page_for_char(start_char: int) -> int:
+        if not page_offsets:
+            return 0
+        page = 0
+        for p, off in enumerate(page_offsets):
+            if off <= start_char:
+                page = p
+            else:
+                break
+        return page
 
     chunks: List[Dict[str, Any]] = []
     step = max(1, approx_tokens - overlap)
     i = 0
     cid = 0
     while i < len(words):
-        seg = " ".join(words[i : i + approx_tokens]).strip()
+        j = min(len(words), i + approx_tokens)
+        seg = " ".join(words[i:j]).strip()
         if seg:
+            start_char = prefix[i]
+            page = page_for_char(start_char)
             chunks.append(
                 {
                     "chunk_id": f"c_{cid:05d}",
-                    "page": 0,           
-                    "section": None,     # section detection omitted (need be added later)
+                    "page": page,
+                    "section": None,
                     "text": seg,
                 }
             )
@@ -79,13 +104,19 @@ class RAGService:
 
         self._store: Dict[str, Dict[str, Any]] = {}
 
-    async def index_contract(self, contract_id: str, text: str, language: str = "en") -> bool:
+    async def index_contract(
+        self,
+        contract_id: str,
+        text: str,
+        language: str = "en",
+        page_offsets: Optional[List[int]] = None,  # <-- NEW
+    ) -> bool:
         """
         Build/replace the FAISS index for a contract.
         Steps:
-          1) chunk
-          2) embed
-          3) index (cosine similarity via inner product on normalized embeddings)
+        1) chunk (page-aware if page_offsets provided)
+        2) embed
+        3) index (cosine similarity via inner product on normalized embeddings)
         """
         if not text or not text.strip():
             return False
@@ -96,17 +127,20 @@ class RAGService:
             except Exception:
                 return False
 
-        chunks = _word_chunks(text, approx_tokens=220, overlap=30)
+        # Page-aware chunking (uses page_offsets when provided)
+        chunks = _word_chunks(text, approx_tokens=220, overlap=30, page_offsets=page_offsets)
         if not chunks:
             chunks = [{"chunk_id": "c_00000", "page": 0, "section": None, "text": text[:2000]}]
 
+        # Embed chunks (cosine via normalized + IndexFlatIP)
         texts = [c["text"] for c in chunks]
         vecs = self.model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
         dim = vecs.shape[1]
 
-        index = faiss.IndexFlatIP(dim)  
+        index = faiss.IndexFlatIP(dim)
         index.add(vecs)
 
+        # Store in-memory index
         self._store[str(contract_id)] = {
             "index": index,
             "embeddings": vecs,

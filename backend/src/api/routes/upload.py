@@ -1,21 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import os
-import uuid
-from datetime import datetime
+import os, uuid
 
 from src.config.database import get_db
 from src.config.settings import get_settings
 from src.models.contract import Contract, FileType, ContractStatus
-from src.models.user import User
-from src.api.routes.auth import get_current_user
+
+from src.api.routes.auth import get_current_user 
+from src.models.user import User  
 
 from src.services.ocr_service import OCRService
-from src.services.extraction import extraction_service
-from src.services.risks import risk_service
-from src.services.summary import summary_service
 from src.services.rag import rag_service
+from src.services.analyze import analyze_service
 
 router = APIRouter()
 settings = get_settings()
@@ -24,18 +20,11 @@ settings = get_settings()
 async def upload_contract(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),  
 ):
     """
-    Upload a contract file (PDF or DOCX) and run the AI analysis pipeline.
-    Flow:
-    1) Save file
-    2) OCR/parse -> text, pages, language
-    3) Extraction (structured fields)
-    4) Risk analysis
-    5) Summary
-    6) RAG indexing
-    7) Persist minimal contract status; return analysis payload
+    Upload a contract (PDF/DOCX) and run the AI analysis pipeline in ONE LLM call.
+    Required auth: Bearer Token → assigns actual user ID to uploaded_by.
     """
     if file.content_type not in [
         "application/pdf",
@@ -59,7 +48,7 @@ async def upload_contract(
         file_name=file.filename,
         file_path=file_path,
         file_type=file_type,
-        uploaded_by=current_user.id,
+        uploaded_by=str(current_user.id),  
         status=ContractStatus.pending,
     )
     db.add(contract)
@@ -75,34 +64,19 @@ async def upload_contract(
         text = parsed.get("text", "") or ""
         pages = int(parsed.get("pages", 0) or 0)
         language = parsed.get("language", "en")
+        page_offsets = parsed.get("page_offsets")
 
         if not text.strip():
-            raise HTTPException(status_code=422, detail="Unable to extract text from the uploaded file.")
-
-        extracted = await extraction_service.extract_all(
-            doc_id=str(contract.id),
-            text=text,
-            language=language
-        )
-
-        risks = await risk_service.analyze_risks(
-            doc_id=str(contract.id),
-            text=text,
-            language=language,
-            extracted=extracted
-        )
-
-        summary = await summary_service.generate_summary(
-            contract_text=text,
-            extracted_data=extracted,
-            risks=risks
-        )
+            raise HTTPException(status_code=422, detail="Unable to extract text from file")
 
         await rag_service.index_contract(
-            contract_id=contract.id,
+            contract_id=str(contract.id),
             text=text,
-            language=language
+            language=language,
+            page_offsets=page_offsets,
         )
+
+        combined = await analyze_service.analyze(contract_id=str(contract.id))
 
         contract.status = ContractStatus.completed
         await db.commit()
@@ -115,11 +89,7 @@ async def upload_contract(
             "pages": pages,
             "language": language,
             "message": "Contract analyzed successfully.",
-            "analysis": {
-                "extracted": extracted,
-                "risks": risks,
-                "summary": summary
-            }
+            "analysis": combined,
         }
 
     except HTTPException:

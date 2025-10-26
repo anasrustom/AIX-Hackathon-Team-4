@@ -1,13 +1,3 @@
-"""
-Chat Service
-Handles natural language Q&A about contracts using RAG + Gemini.
-
-- Per-contract and cross-contract questions
-- Retrieves top-k chunks via rag_service
-- Answers strictly from provided context
-- Returns citations with chunk_id, page, and short snippet
-"""
-
 from typing import Dict, List, Optional, Any
 import json
 
@@ -17,12 +7,11 @@ from src.services.rag import rag_service
 
 settings = get_settings()
 
-
 SYSTEM_QA_INSTRUCTIONS = (
     "You are an AI contract analyst. Answer the user's question STRICTLY from the provided CHUNKS. "
     "If the answer is not present in the chunks, say you cannot find it in the contract text. "
     "Return ONLY JSON with keys: answer (string), citations (list of {chunk_id, page, text}), confidence (0..1). "
-    "Citations should quote only the minimum necessary snippet supporting the answer."
+    "Citations must include a valid chunk_id from the input. Keep snippets minimal."
 )
 
 def _cap_snippet(s: str, n: int = 260) -> str:
@@ -35,12 +24,19 @@ class ChatService:
     Service for handling natural language questions about contracts.
     """
 
+    # Guardrail bounds
+    _MAX_CITATIONS = 5
+    _MAX_OUTPUT_TOKENS = 768
+
     def __init__(self):
         if settings.gemini_api_key:
             genai.configure(api_key=settings.gemini_api_key)
             self.model = genai.GenerativeModel(
                 model_name="gemini-2.5-flash",
-                generation_config={"response_mime_type": "application/json"},
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "max_output_tokens": self._MAX_OUTPUT_TOKENS,
+                },
             )
         else:
             self.model = None
@@ -49,7 +45,7 @@ class ChatService:
         self,
         question: str,
         contract_id: Optional[str] = None,
-        contract_text: Optional[str] = None,  
+        contract_text: Optional[str] = None,
         context: Optional[Dict] = None
     ) -> Dict:
         """
@@ -65,9 +61,9 @@ class ChatService:
 
         # 1) Retrieve relevant chunks via RAG
         if contract_id:
-            hits = await rag_service.search_contract(str(contract_id), question, top_k=6)
+            hits = await rag_service.search_contract(str(contract_id), question, top_k=8)
         else:
-            hits = await rag_service.search_all_contracts(question, top_k=8)
+            hits = await rag_service.search_all_contracts(question, top_k=10)
 
         if not hits:
             if contract_text and contract_text.strip():
@@ -113,14 +109,33 @@ class ChatService:
             resp = self.model.generate_content(contents=[{"role": "user", "parts": prompt_parts}])
             data = json.loads(resp.text)
 
-            answer = data.get("answer") or "I couldn’t find that in the provided context."
-            citations = data.get("citations") or []
-            confidence = float(data.get("confidence", 0.5))
+            # Guardrail: validate citations come back with valid chunk_ids
+            citations = self._filter_citations(
+                proposed=data.get("citations"),
+                allowed_chunk_ids={c["chunk_id"] for c in chunks_payload},
+                max_items=self._MAX_CITATIONS,
+            )
 
+            # If model returned no valid citations, fall back to top chunks as sources
+            if not citations:
+                fallback = [
+                    f"{c['chunk_id']} p.{c.get('page',0)}: {_cap_snippet(c['text'])}"
+                    for c in chunks_payload[: min(3, len(chunks_payload))]
+                ]
+                return {
+                    "answer": data.get("answer") or "I had trouble generating an answer from the context.",
+                    "sources": self.format_sources(fallback),
+                    "confidence": float(data.get("confidence", 0.0)),
+                }
+
+            # Build sources list from validated citations
             sources = self.format_sources([
                 f"{c.get('chunk_id','')} p.{c.get('page',0)}: {_cap_snippet(c.get('text',''))}"
                 for c in citations
             ])
+
+            answer = data.get("answer") or "I couldn’t find that in the provided context."
+            confidence = float(data.get("confidence", 0.5))
 
             return {
                 "answer": answer,
@@ -128,7 +143,8 @@ class ChatService:
                 "confidence": max(0.0, min(1.0, confidence)),
             }
 
-        except Exception as e:
+        except Exception:
+            # Very defensive fallback if JSON/parse fails
             fallbacks = [
                 f"{c['chunk_id']} p.{c.get('page',0)}: {_cap_snippet(c['text'])}"
                 for c in chunks_payload[:3]
@@ -178,4 +194,40 @@ class ChatService:
         """
         return sources
 
+    # ---------- Internal helpers ----------
+
+    def _filter_citations(
+        self,
+        proposed: Any,
+        allowed_chunk_ids: set,
+        max_items: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Accept only citations that include a valid chunk_id from the provided chunks.
+        Cap the number returned; coerce missing fields conservatively.
+        """
+        out: List[Dict[str, Any]] = []
+        if not isinstance(proposed, list):
+            return out
+        for item in proposed:
+            if not isinstance(item, dict):
+                continue
+            cid = str(item.get("chunk_id") or "").strip()
+            if not cid or cid not in allowed_chunk_ids:
+                continue
+            page = item.get("page", 0)
+            text = item.get("text", "")
+            out.append({"chunk_id": cid, "page": page, "text": text})
+            if len(out) >= max_items:
+                break
+        return out
+
+
+def _safe_int(val: Any, default: int = 768) -> int:
+    try:
+        ival = int(val)
+        return ival if ival > 0 else default
+    except Exception:
+        return default
+    
 chat_service = ChatService()
